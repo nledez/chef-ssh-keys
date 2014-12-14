@@ -22,8 +22,18 @@ if node[:ssh_keys]
 
       # Saving SSH keys
       if ssh_keys.length > 0
+        symlink_file = false
         home_dir = user['dir']
         authorized_keys_file = "#{home_dir}/.ssh/authorized_keys"
+
+        # Get realpath if symlink
+        if File.symlink?(authorized_keys_file)
+          Chef::Log.info("Use symlink target: #{authorized_keys_file}")
+          source_authorized_keys_file = File.readlink(authorized_keys_file)
+          temp_authorized_keys_file = "#{authorized_keys_file}.tmp"
+          `cp #{source_authorized_keys_file} #{temp_authorized_keys_file}`
+          symlink_file = true
+        end
 
         if node[:ssh_keys_keep_existing] && File.exist?(authorized_keys_file)
           Chef::Log.info("Keep authorized keys from: #{authorized_keys_file}")
@@ -46,11 +56,22 @@ if node[:ssh_keys]
         end
 
         # Creating "authorized_keys"
-        template authorized_keys_file do
+        template "authorized_keys" do
+          source "authorized_keys.erb"
+          if symlink_file
+            path temp_authorized_keys_file
+          else
+            path authorized_keys_file
+          end
           owner user['uid']
           group user['gid'] || user['uid']
           mode "0600"
           variables :ssh_keys => ssh_keys
+        end
+
+        bash "symlink file" do
+          code "cat #{temp_authorized_keys_file} > #{source_authorized_keys_file} && rm #{temp_authorized_keys_file}"
+          only_if { symlink_file }
         end
       end
     end
